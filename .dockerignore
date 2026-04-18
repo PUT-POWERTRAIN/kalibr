@@ -1,0 +1,12 @@
+.git
+.github
+data
+build
+devel
+logs
+*.bag
+*.db3
+*.sqlite3
+__pycache__
+*.pyc
+*.pyo

@@ -16,6 +16,13 @@ To install follow the [install wiki page](https://github.com/ethz-asl/kalibr/wik
 Please find more information on the [wiki pages](https://github.com/ethz-asl/kalibr/wiki) of this repository.
 For questions or comments, please open an issue on Github.
 
+## OAK-D Docker workflow
+
+If you want to calibrate an OAK-D using Docker (record rosbag from hardware, then run Kalibr), see:
+
+- `OAKD_DOCKER_CALIBRATION.md`
+- `scripts/oakd_kalibr.sh` (automation helper)
+
 
 ## News / Events
 
