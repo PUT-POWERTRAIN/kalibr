@@ -38,6 +38,7 @@ Options:
   --bag-freq HZ           Kalibr bag frequency option (default: 4.0).
   --duration SEC          Recording duration in seconds (record mode).
   --pipeline NAME         depthai pipeline type (default: RGBStereo).
+  --no-visualize          Disable live camera preview during recording.
   -h, --help              Show help.
 
 Examples:
@@ -117,10 +118,18 @@ record_bag() {
   fi
 
   local rc=0
+  # Set up X11 forwarding for visualization if enabled
+  local x11_args=()
+  if [ "$VISUALIZE" = true ] && [ -n "${DISPLAY:-}" ]; then
+    x11_args=(-e DISPLAY="$DISPLAY" -v /tmp/.X11-unix:/tmp/.X11-unix:rw)
+  fi
+  
   docker run --rm "$docker_tty_arg" --name "$CONTAINER_NAME" --net=host --privileged \
+    "${x11_args[@]}" \
     -e BAG_NAME="$BAG_NAME" \
     -e BAG_DURATION="$DURATION" \
     -e OAK_PIPELINE="$PIPELINE" \
+    -e VISUALIZE="$VISUALIZE" \
     -v /dev:/dev \
     -v "${DATA_DIR}:/data" \
     "$OAK_IMAGE" \
@@ -132,10 +141,34 @@ source /ws/devel/setup.bash
 roslaunch depthai_ros_driver camera.launch params_file:=/data/oakd_stereo_params.yaml rectify_rgb:=false >/tmp/oakd_roslaunch.log 2>&1 &
 LAUNCH_PID=$!
 
+# Initialize PIDs array for cleanup
+PIDS=($LAUNCH_PID)
+
 cleanup() {
-  if kill -0 "$LAUNCH_PID" >/dev/null 2>&1; then
-    kill "$LAUNCH_PID" >/dev/null 2>&1 || true
-  fi
+  # Kill all background processes gracefully
+  for pid in "${PIDS[@]}"; do
+    if kill -0 "$pid" >/dev/null 2>&1; then
+      kill "$pid" >/dev/null 2>&1 || true
+    fi
+  done
+  # Wait for processes to terminate
+  for pid in "${PIDS[@]}"; do
+    wait "$pid" 2>/dev/null || true
+  done
+}
+trap cleanup EXIT INT TERM
+
+cleanup() {
+  # Kill all background processes gracefully
+  for pid in "${PIDS[@]}"; do
+    if kill -0 "$pid" >/dev/null 2>&1; then
+      kill "$pid" >/dev/null 2>&1 || true
+    fi
+  done
+  # Wait for processes to terminate
+  for pid in "${PIDS[@]}"; do
+    wait "$pid" 2>/dev/null || true
+  done
 }
 trap cleanup EXIT INT TERM
 
@@ -178,6 +211,30 @@ if log:
     print(log, file=sys.stderr)
 sys.exit(1)
 PY
+
+# Launch camera visualization (live preview) if enabled
+if [ "$VISUALIZE" = true ]; then
+  echo "Starting camera visualization..."
+  if [ -x "/opt/ros/noetic/lib/image_view/image_view" ]; then
+    # Test if X11 is available by checking DISPLAY and testing connection
+    if [ -n "${DISPLAY:-}" ] && timeout 2s xset q >/dev/null 2>&1; then
+      # Launch separate image_view nodes for left and right cameras
+      ROS_NAMESPACE=/oak/left /opt/ros/noetic/lib/image_view/image_view image:=image_raw window_name:="OAK-D Left Camera" >/tmp/image_view_left.log 2>&1 &
+      LEFT_VIEW_PID=$!
+      PIDS+=($LEFT_VIEW_PID)
+      
+      ROS_NAMESPACE=/oak/right /opt/ros/noetic/lib/image_view/image_view image:=image_raw window_name:="OAK-D Right Camera" >/tmp/image_view_right.log 2>&1 &
+      RIGHT_VIEW_PID=$!
+      PIDS+=($RIGHT_VIEW_PID)
+      
+      echo "Live camera preview active. Close the camera windows or press Ctrl+C to stop recording."
+    else
+      echo "Note: No X11 display available. Recording without live preview (bag will still be recorded)."
+    fi
+  else
+    echo "Warning: image_view not found. Recording without live preview." >&2
+  fi
+fi
 
 if [ -n "${BAG_DURATION}" ]; then
   rosbag record --duration="${BAG_DURATION}" -O "/data/${BAG_NAME}" \
@@ -260,6 +317,7 @@ MODELS="$DEFAULT_MODELS"
 BAG_FREQ="$DEFAULT_BAG_FREQ"
 DURATION="$DEFAULT_DURATION"
 PIPELINE="$DEFAULT_PIPELINE"
+VISUALIZE=true
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -306,6 +364,10 @@ while [ "$#" -gt 0 ]; do
     --pipeline)
       PIPELINE="$2"
       shift 2
+      ;;
+    --no-visualize)
+      VISUALIZE=false
+      shift
       ;;
     -h|--help)
       usage

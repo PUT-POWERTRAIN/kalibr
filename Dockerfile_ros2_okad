@@ -1,0 +1,19 @@
+FROM luxonis/depthai-ros:humble-latest
+
+# Uniknięcie pytań o strefę czasową podczas instalacji
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Instalacja sterownika i niezbędnych narzędzi
+RUN apt-get update && apt-get install -y \
+    ros-humble-depthai-ros \
+    usbutils \
+    ros-humble-rviz2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Konfiguracja X11 dla Qt (naprawa Segfault w Rviz)
+ENV QT_X11_NO_MITSHM=1
+
+# Automatyczne ładowanie ROS przy wejściu do kontenera
+RUN echo "source /opt/ros/humble/setup.bash" >> /root/.bashrc
+
+WORKDIR /ws
